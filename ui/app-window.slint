@@ -1,0 +1,68 @@
+import {
+    Button,
+    VerticalBox,
+    HorizontalBox,
+    StandardButton,
+} from "std-widgets.slint";
+
+struct ImageChannelCalculatedData { average: float, median: float, variance: float, std_deviation: float }
+
+struct ImageCalculatedData {
+    red_data: ImageChannelCalculatedData,
+    green_data: ImageChannelCalculatedData,
+    blue_data: ImageChannelCalculatedData
+}
+
+struct Area { x: int, y: int, width: int, height: int }
+
+export component ErrorDialog inherits Dialog {
+    in property <string> error-text;
+    title: "Error while opening the file";
+    Text {
+        text: error-text;
+    }
+
+    StandardButton {
+        kind: ok;
+        clicked => { root.close(); }
+    }
+}
+
+export component CanceledDialog inherits Dialog {
+    title: "Canceled operation";
+
+    Text {
+        text: "Operation has been canceled";
+    }
+
+    StandardButton {
+        kind: ok;
+        clicked => { root.close(); }
+    }
+}
+
+export component AppWindow inherits Window {
+    in-out property original-image <=> original.source;
+
+    pure callback calculate-data(Area) -> ImageCalculatedData;
+    callback file-open();
+
+    MenuBar {
+        Menu {
+            title: "File";
+            MenuItem {
+                title: "Open";
+                activated => { file-open(); }
+            }
+        }
+    }
+
+    title: "Rust signal processing examples";
+    preferred-width: 800px;
+    preferred-height: 600px;
+    HorizontalBox {
+        VerticalBox {
+            original := Image { }
+        }
+    }
+}
