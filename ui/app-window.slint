@@ -3,6 +3,7 @@ import {
     VerticalBox,
     HorizontalBox,
     StandardButton,
+    ScrollView,
 } from "std-widgets.slint";
 
 struct ImageChannelCalculatedData { average: float, median: float, variance: float, std_deviation: float }
@@ -41,10 +42,75 @@ export component CanceledDialog inherits Dialog {
     }
 }
 
+component ChannelData {
+    in property <string> channel-name;
+    in property <ImageChannelCalculatedData> data;
+
+    VerticalBox {
+        Text {
+            text: channel-name;
+        }
+
+        Text {
+            text: "Average of pixels: \{data.average}";
+        }
+
+        Text {
+            text: "Median of pixels: \{data.median}";
+        }
+
+        Text {
+            text: "Variance of pixels: \{data.variance}";
+        }
+
+        Text {
+            text: "Standard deviation of pixels: \{data.std-deviation}";
+        }
+    }
+}
+
+export component ImageDataDialog inherits Dialog {
+    in property <ImageCalculatedData> image_data;
+    title: "Image data in selected region";
+
+    HorizontalBox {
+
+        HorizontalBox {
+            ChannelData {
+                channel-name: "Red channel";
+                data: image_data.red-data;
+            }
+
+            ChannelData {
+                channel-name: "Green channel";
+                data: image_data.green-data;
+            }
+
+            ChannelData {
+                channel-name: "Blue channel";
+                data: image_data.blue-data;
+            }
+        }
+    }
+
+    StandardButton {
+        kind: ok;
+        clicked => { root.close(); }
+    }
+}
+
+struct DraggingContext {
+    is_dragging: bool,
+    last_x: length,
+    last_y: length,
+    cur_x: length,
+    cur_y: length,
+}
+
 export component AppWindow inherits Window {
     in-out property original-image <=> original.source;
 
-    pure callback calculate-data(Area) -> ImageCalculatedData;
+    pure callback calculate-data(Area);
     callback file-open();
 
     MenuBar {
@@ -57,12 +123,65 @@ export component AppWindow inherits Window {
         }
     }
 
+    private property <DraggingContext> drag: {
+        is_dragging: false,
+        last_x: 0,
+        last_y: 0,
+        cur_x: 0,
+        cur_y: 0,
+    };
     title: "Rust signal processing examples";
     preferred-width: 800px;
     preferred-height: 600px;
+    function reset_dragging() {
+        drag.is-dragging = false;
+        drag.cur-x = 0;
+        drag.cur-y = 0;
+        drag.last-x = 0;
+        drag.last-x = 0;
+    }
+
     HorizontalBox {
         VerticalBox {
-            original := Image { }
+            ScrollView {
+                width: 100%;
+                height: 100%;
+                content-width: original.width;
+                content-height: original.height;
+                area := TouchArea {
+                    width: original.width;
+                    height: original.height;
+                    clicked => {
+                        drag.is-dragging = !drag.is-dragging;
+                        if drag.is-dragging {
+                            drag.last-x = area.pressed-x;
+                            drag.last-y = area.pressed-y;
+                        } else {
+                            calculate-data({
+                                x: min(drag.last-x, area.mouse-x) / 1px,
+                                y: min(drag.last-y, area.mouse-y) / 1px,
+                                width: abs(area.mouse-x - drag.last-x) / 1px,
+                                height: abs(area.mouse-y - drag.last-y) / 1px,
+                            });
+                        }
+                    }
+
+                    original := Image {
+                        image-fit: preserve;
+                    }
+
+                    if drag.is-dragging: Rectangle {
+                        border-color: black;
+                        border-width: 5px;
+
+                        x: min(drag.last-x, area.mouse-x);
+                        y: min(drag.last-y, area.mouse-y);
+
+                        width: abs(area.mouse-x - drag.last-x);
+                        height: abs(area.mouse-y - drag.last-y);
+                    }
+                }
+            }
         }
     }
 }
