@@ -1,4 +1,3 @@
-use slint::Image;
 use std::error::Error;
 
 use crate::LoadingError::ErrorOpening;
@@ -11,9 +10,8 @@ enum LoadingError {
 }
 
 fn open_file() -> Result<slint::Image, LoadingError> {
-    let dialog = rfd::FileDialog::new()
-        .set_title("Select image file")
-        .add_filter("Image", &["png", "bmp", "jpeg", "avif", "svg"]);
+    let dialog = rfd::FileDialog::new().set_title("Select image file");
+    // .add_filter("Image", &["png", "bmp", "jpeg", "avif", "svg"]);
 
     let Some(file) = dialog.pick_file() else {
         return Err(LoadingError::Canceled);
@@ -70,6 +68,12 @@ fn extract_rect_channels(
     result
 }
 fn calculate_image(area: Area, img: slint::Image) -> Option<ImageCalculatedData> {
+    let image_width = img.size().width as i32;
+    let image_height = img.size().height as i32;
+    if (area.x == 0) || (area.y == 0) || (area.x + area.width == 0) || (area.y + area.height == 0) {
+        return None;
+    }
+
     let mut data = img.to_rgba8()?;
 
     let data = data.make_mut_slice();
@@ -79,6 +83,10 @@ fn calculate_image(area: Area, img: slint::Image) -> Option<ImageCalculatedData>
         img.size().height as i32,
         area,
     );
+
+    if data[0].is_empty() || data[1].is_empty() || data[2].is_empty() {
+        return None;
+    }
 
     let avg_r = calc_average(data[0].as_slice());
     let avg_g = calc_average(data[1].as_slice());
