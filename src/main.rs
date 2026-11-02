@@ -20,6 +20,62 @@ fn open_file() -> Result<slint::Image, LoadingError> {
     slint::Image::load_from_path(&file).map_err(|e| ErrorOpening(e.to_string()))
 }
 
+#[derive(Debug)]
+enum ImageSaveError {
+    Canceled,
+    Conversion(String),
+    Saving(String),
+}
+
+fn save_image(img: slint::Image) -> Result<(), ImageSaveError> {
+    let Some(file) = rfd::FileDialog::new()
+        .set_title("Save image")
+        .add_filter("PNG image", &["png"])
+        .add_filter("JPEG image", &["jpg", "jpeg"])
+        .add_filter("Bitmap image", &["bmp"])
+        .set_file_name("image.png")
+        .save_file()
+    else {
+        return Err(ImageSaveError::Canceled);
+    };
+
+    let rgba = img
+        .to_rgba8()
+        .ok_or_else(|| ImageSaveError::Conversion("Could not convert image to RGBA".into()))?;
+
+    let width = rgba.width();
+    let height = rgba.height();
+
+    let buffer: Vec<u8> = rgba
+        .as_slice()
+        .iter()
+        .flat_map(|pixel| [pixel.r, pixel.g, pixel.b, pixel.a])
+        .collect();
+
+    let format = match file
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_lowercase()
+        .as_str()
+    {
+        "png" => image::ImageFormat::Png,
+        "jpg" | "jpeg" => image::ImageFormat::Jpeg,
+        "bmp" => image::ImageFormat::Bmp,
+        _ => {
+            return Err(ImageSaveError::Saving("Unsupported image format".into()));
+        }
+    };
+
+    let image = image::RgbaImage::from_raw(width, height, buffer)
+        .ok_or_else(|| ImageSaveError::Conversion("Invalid image buffer".into()))?;
+
+    image
+        .save_with_format(&file, format)
+        .map_err(|e| ImageSaveError::Saving(e.to_string()))?;
+
+    Ok(())
+}
 fn calc_average(data: &[u8]) -> f32 {
     data.iter().fold(0.0f32, |c, &x| c + x as f32) / data.len() as f32
 }
@@ -67,6 +123,177 @@ fn extract_rect_channels(
 
     result
 }
+
+use plotters::prelude::*;
+
+fn calculate_histogram(img: slint::Image) -> Option<slint::Image> {
+    use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
+
+    const WIDTH: u32 = 700;
+    const HEIGHT: u32 = 600;
+
+    let input = img.to_rgba8()?;
+    let pixels = input.as_slice();
+
+    // Calculate histograms.
+    let mut red = [0u32; 256];
+    let mut green = [0u32; 256];
+    let mut blue = [0u32; 256];
+
+    for pixel in pixels {
+        red[pixel.r as usize] += 1;
+        green[pixel.g as usize] += 1;
+        blue[pixel.b as usize] += 1;
+    }
+
+    let max_count = *red.iter().chain(green.iter()).chain(blue.iter()).max()?;
+
+    if max_count == 0 {
+        return None;
+    }
+
+    // Plotters uses RGB format (3 bytes per pixel).
+    let mut buffer = vec![255u8; (WIDTH * HEIGHT * 3) as usize];
+
+    {
+        let root = BitMapBackend::with_buffer(&mut buffer, (WIDTH, HEIGHT)).into_drawing_area();
+
+        root.fill(&WHITE).ok()?;
+
+        let panels = root.split_evenly((3, 1));
+
+        let channels = [
+            ("Red channel", &red, RED),
+            ("Green channel", &green, GREEN),
+            ("Blue channel", &blue, BLUE),
+        ];
+
+        for ((title, histogram, color), area) in channels.iter().zip(panels.iter()) {
+            let mut chart = ChartBuilder::on(area)
+                .caption(*title, 20)
+                .margin(10)
+                .x_label_area_size(30)
+                .y_label_area_size(50)
+                .build_cartesian_2d(0u32..255u32, 0u32..max_count)
+                .ok()?;
+
+            chart
+                .configure_mesh()
+                .x_desc("LBP value")
+                .y_desc("Pixel count")
+                .x_labels(16)
+                .draw()
+                .ok()?;
+
+            chart
+                .draw_series(
+                    Histogram::vertical(&chart).style(color.filled()).data(
+                        histogram
+                            .iter()
+                            .enumerate()
+                            .map(|(x, count)| (x as u32, *count)),
+                    ),
+                )
+                .ok()?;
+        }
+
+        root.present().ok()?;
+    }
+
+    // Convert RGB buffer to Slint RGBA image.
+    let mut output = SharedPixelBuffer::<Rgba8Pixel>::new(WIDTH, HEIGHT);
+
+    for (rgb, rgba) in buffer
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(output.make_mut_slice().iter_mut())
+    {
+        *rgba = Rgba8Pixel {
+            r: rgb[0],
+            g: rgb[1],
+            b: rgb[2],
+            a: 255,
+        };
+    }
+
+    Some(Image::from_rgba8(output))
+}
+
+fn calculate_blp(img: slint::Image) -> Option<slint::Image> {
+    use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
+
+    let input = img.to_rgba8()?;
+
+    let width = input.width();
+    let height = input.height();
+
+    if width < 3 || height < 3 {
+        return None;
+    }
+
+    let src = input.as_slice();
+
+    let mut output = SharedPixelBuffer::<Rgba8Pixel>::new(width, height);
+    let dst = output.make_mut_slice();
+
+    dst.fill(Rgba8Pixel {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    });
+
+    // Left, bottom-left, bottom, bottom-right,
+    // right, top-right, top, top-left.
+    let neighbors: [(i32, i32); 8] = [
+        (-1, 0),
+        (-1, 1),
+        (0, 1),
+        (1, 1),
+        (1, 0),
+        (1, -1),
+        (0, -1),
+        (-1, -1),
+    ];
+
+    for y in 1..height - 1 {
+        for x in 1..width - 1 {
+            let index = (y * width + x) as usize;
+            let center = src[index];
+
+            let mut r = 0u8;
+            let mut g = 0u8;
+            let mut b = 0u8;
+
+            for (bit, (dx, dy)) in neighbors.iter().enumerate() {
+                let nx = (x as i32 + dx) as u32;
+                let ny = (y as i32 + dy) as u32;
+
+                let neighbor = src[(ny * width + nx) as usize];
+
+                let mask = 1 << (7 - bit);
+
+                if neighbor.r > center.r {
+                    r |= mask;
+                }
+
+                if neighbor.g > center.g {
+                    g |= mask;
+                }
+
+                if neighbor.b > center.b {
+                    b |= mask;
+                }
+            }
+
+            dst[index] = Rgba8Pixel { r, g, b, a: 255 };
+        }
+    }
+
+    Some(Image::from_rgba8(output))
+}
+
 fn calculate_image(area: Area, img: slint::Image) -> Option<ImageCalculatedData> {
     let image_width = img.size().width as i32;
     let image_height = img.size().height as i32;
@@ -159,6 +386,38 @@ fn main() -> Result<(), Box<dyn Error>> {
         let dialog = ImageDataDialog::new().unwrap();
         dialog.set_image_data(data);
         dialog.show().unwrap();
+    });
+
+    ui.on_calculate_blp(move |img| -> slint::Image {
+        let Some(data) = calculate_blp(img) else {
+            return slint::Image::default();
+        };
+        data
+    });
+
+    ui.on_calculate_histogram(move |img| -> slint::Image {
+        let Some(data) = calculate_histogram(img) else {
+            return slint::Image::default();
+        };
+        data
+    });
+
+    ui.on_save_histogram(move |img| match save_image(img) {
+        Err(ImageSaveError::Conversion(err)) => {
+            let dialog = ErrorDialog::new().unwrap();
+            dialog.set_error_text(err.into());
+            dialog.show().unwrap();
+        }
+        Err(ImageSaveError::Saving(err)) => {
+            let dialog = ErrorDialog::new().unwrap();
+            dialog.set_error_text(err.into());
+            dialog.show().unwrap();
+        }
+        Err(ImageSaveError::Canceled) => {
+            let dialog = CanceledDialog::new().unwrap();
+            dialog.show().unwrap();
+        }
+        _ => {}
     });
 
     ui.run()?;

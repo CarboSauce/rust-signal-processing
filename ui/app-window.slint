@@ -107,21 +107,10 @@ struct DraggingContext {
     cur_y: length,
 }
 
-export component AppWindow inherits Window {
+export component PixelStatPage inherits VerticalBox {
     in-out property original-image <=> original.source;
-
-    pure callback calculate-data(Area);
     callback file-open();
-
-    MenuBar {
-        Menu {
-            title: "File";
-            MenuItem {
-                title: "Open";
-                activated => { file-open(); }
-            }
-        }
-    }
+    callback calculate-data(Area);
 
     private property <DraggingContext> drag: {
         is_dragging: false,
@@ -130,9 +119,6 @@ export component AppWindow inherits Window {
         cur_x: 0,
         cur_y: 0,
     };
-    title: "Rust signal processing examples";
-    preferred-width: 800px;
-    preferred-height: 600px;
     function reset_dragging() {
         drag.is-dragging = false;
         drag.cur-x = 0;
@@ -182,6 +168,128 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+        }
+    }
+}
+
+export component BlpPage inherits VerticalBox {
+    in-out property original-image <=> original.source;
+    in-out property blp-image <=> blp-img.source;
+    in-out property hist-image <=> hist-img.source;
+    pure callback calculate-histogram(image) -> image;
+    pure callback calculate-blp(image) -> image;
+    callback save-histogram(image);
+
+    VerticalBox {
+        HorizontalBox {
+            VerticalBox {
+                Text {
+                    font-size: 20px;
+                    text: "Original Image";
+                    horizontal-alignment: center;
+                }
+
+                original := Image {
+                    image-fit: contain;
+                }
+            }
+
+            VerticalBox {
+                Text {
+                    font-size: 20px;
+                    text: "Binary local pattern";
+                    horizontal-alignment: center;
+                }
+
+                blp-img := Image {
+                    source: calculate-blp(original-image);
+                    image-fit: contain;
+                }
+            }
+        }
+
+        VerticalBox {
+            Text {
+                font-size: 20px;
+                text: "Histogram";
+                horizontal-alignment: center;
+            }
+
+            ContextMenuArea {
+                hist-img := Image {
+                    source: calculate-histogram(blp-image);
+                    image-fit: contain;
+                }
+
+                Menu {
+                    MenuItem {
+                        title: "Save";
+                        activated => {
+                            save-histogram(hist-image)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+export enum WindowState {
+    PixelInfo,
+    BinaryLocalPattern,
+}
+
+export component AppWindow inherits Window {
+    in-out property <WindowState> state: WindowState.PixelInfo;
+    in-out property <image> original-image;
+    callback calculate-data(Area);
+    pure callback calculate-blp(image) -> image;
+    pure callback calculate-histogram(image) -> image;
+    callback save-histogram(image);
+    callback file-open();
+    title: "Rust signal processing examples";
+    preferred-width: 800px;
+    preferred-height: 600px;
+    MenuBar {
+        Menu {
+            title: "Functions";
+            MenuItem {
+                title: "Pixel info";
+                activated => {
+                    state = WindowState.PixelInfo;
+                }
+            }
+
+            MenuItem {
+                title: "Binary local pattern";
+                activated => {
+                    state = WindowState.BinaryLocalPattern;
+                }
+            }
+        }
+
+        Menu {
+            title: "File";
+            MenuItem {
+                title: "Open";
+                activated => {
+                    file-open()
+                }
+            }
+        }
+    }
+
+    VerticalLayout {
+        if (state == WindowState.PixelInfo): PixelStatPage {
+            original-image: original-image;
+            calculate-data(a) => calculate-data(a);
+        }
+        if (state == WindowState.BinaryLocalPattern): BlpPage {
+            original-image: original-image;
+            calculate-blp(img) => calculate-blp(img);
+            calculate-histogram(img) => calculate-histogram(img);
+            save-histogram(img) => save-histogram(img);
         }
     }
 }

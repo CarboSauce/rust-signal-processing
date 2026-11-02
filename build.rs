@@ -20,7 +20,7 @@ fn visit_dirs(dir: &Path, cb: &impl Fn(&DirEntry)) -> io::Result<()> {
 }
 
 fn main() {
-    visit_dirs("ui/".as_ref(), &|e: &DirEntry| -> () {
+    visit_dirs("ui/".as_ref(), &|e: &DirEntry| {
         slint_build::compile(e.path()).expect("Slint build failed")
     })
     .expect("Slint build failed");
