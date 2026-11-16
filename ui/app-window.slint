@@ -4,6 +4,8 @@ import {
     HorizontalBox,
     StandardButton,
     ScrollView,
+    Slider,
+    SpinBox,
 } from "std-widgets.slint";
 
 struct ImageChannelCalculatedData { average: float, median: float, variance: float, std_deviation: float }
@@ -234,17 +236,127 @@ export component BlpPage inherits VerticalBox {
     }
 }
 
+export component KMeansPage inherits VerticalBox {
+    in-out property original-image <=> original.source;
+    in-out property kmeans-image <=> kmeans-img.source;
+
+    in-out property <int> kmean-max-iters: 5;
+    in-out property <int> kmean-cluster-count: 2;
+
+    pure callback calculate-kmeans(image, int, int) -> image;
+
+    spacing: 20px;
+
+    // Top: parameter selection
+    VerticalBox {
+        alignment: center;
+        vertical-stretch: 0;
+        horizontal-stretch: 1;
+
+        Text {
+            text: "Parameter selection";
+            font-size: 24px;
+            horizontal-alignment: center;
+        }
+
+        HorizontalBox {
+            alignment: center;
+            spacing: 20px;
+
+            Text {
+                text: "Cluster count";
+                vertical-alignment: center;
+            }
+
+            SpinBox {
+                width: 100px;
+                minimum: 2;
+                maximum: 20;
+                value: root.kmean-cluster-count;
+
+                edited(value) => {
+                    root.kmean-cluster-count = value;
+                }
+            }
+
+            Text {
+                text: "Maximum iterations";
+                vertical-alignment: center;
+            }
+
+            SpinBox {
+                width: 100px;
+                minimum: 1;
+                maximum: 100;
+                value: root.kmean-max-iters;
+
+                edited(value) => {
+                    root.kmean-max-iters = value;
+                }
+            }
+
+            Button {
+                text: "Calculate";
+                clicked => {
+                    kmeans-img.source = calculate-kmeans(
+                        original-image,
+                        kmean-cluster-count,
+                        kmean-max-iters);
+                }
+            }
+        }
+    }
+
+    // Bottom: images
+    HorizontalBox {
+        spacing: 20px;
+        vertical-stretch: 1;
+
+        VerticalBox {
+            horizontal-stretch: 1;
+
+            Text {
+                text: "Original Image";
+                font-size: 20px;
+                horizontal-alignment: center;
+            }
+
+            original := Image {
+                image-fit: contain;
+                vertical-stretch: 1;
+            }
+        }
+
+        VerticalBox {
+            horizontal-stretch: 1;
+
+            Text {
+                text: "K-Means Image";
+                font-size: 20px;
+                horizontal-alignment: center;
+            }
+
+            kmeans-img := Image {
+                image-fit: contain;
+                vertical-stretch: 1;
+            }
+        }
+    }
+}
+
 
 export enum WindowState {
     PixelInfo,
     BinaryLocalPattern,
+    KMeans,
 }
 
 export component AppWindow inherits Window {
-    in-out property <WindowState> state: WindowState.PixelInfo;
+    in-out property <WindowState> state: WindowState.KMeans;
     in-out property <image> original-image;
     callback calculate-data(Area);
     pure callback calculate-blp(image) -> image;
+    pure callback calculate-kmeans(image, int, int) -> image;
     pure callback calculate-histogram(image) -> image;
     callback save-histogram(image);
     callback file-open();
@@ -267,6 +379,13 @@ export component AppWindow inherits Window {
                     state = WindowState.BinaryLocalPattern;
                 }
             }
+
+            MenuItem {
+                title: "K-Means";
+                activated => {
+                    state = WindowState.KMeans;
+                }
+            }
         }
 
         Menu {
@@ -284,6 +403,10 @@ export component AppWindow inherits Window {
         if (state == WindowState.PixelInfo): PixelStatPage {
             original-image: original-image;
             calculate-data(a) => calculate-data(a);
+        }
+        if (state == WindowState.KMeans): KMeansPage {
+            original-image: original-image;
+            calculate-kmeans(a, b, c) => calculate-kmeans(a,b,c);
         }
         if (state == WindowState.BinaryLocalPattern): BlpPage {
             original-image: original-image;

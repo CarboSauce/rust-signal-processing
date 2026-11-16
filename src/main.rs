@@ -10,8 +10,9 @@ enum LoadingError {
 }
 
 fn open_file() -> Result<slint::Image, LoadingError> {
-    let dialog = rfd::FileDialog::new().set_title("Select image file");
-    // .add_filter("Image", &["png", "bmp", "jpeg", "avif", "svg"]);
+    let dialog = rfd::FileDialog::new()
+        .set_title("Select image file")
+        .add_filter("Image", &["png", "bmp", "jpg", "jpeg", "avif", "svg"]);
 
     let Some(file) = dialog.pick_file() else {
         return Err(LoadingError::Canceled);
@@ -220,6 +221,137 @@ fn calculate_histogram(img: slint::Image) -> Option<slint::Image> {
     Some(Image::from_rgba8(output))
 }
 
+fn calculate_kmeans(img: slint::Image, k: usize, max_iterations: usize) -> Option<slint::Image> {
+    use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
+
+    if k == 0 || max_iterations == 0 {
+        return None;
+    }
+
+    let input = img.to_rgba8()?;
+    let width = input.width();
+    let height = input.height();
+    let pixels = input.as_slice();
+
+    let n = pixels.len();
+
+    if k > n {
+        return None;
+    }
+
+    // Each pixel is represented as an RGB point.
+    let points: Vec<[f64; 3]> = pixels
+        .iter()
+        .map(|p| [p.r as f64, p.g as f64, p.b as f64])
+        .collect();
+
+    // Squared Euclidean distance.
+    fn distance(a: &[f64; 3], b: &[f64; 3]) -> f64 {
+        (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)
+    }
+
+    // Initialize centroids using farthest-point selection.
+    let mut centroids: Vec<[f64; 3]> = Vec::with_capacity(k);
+
+    centroids.push(points[0]);
+
+    while centroids.len() < k {
+        let mut best_index = 0;
+        let mut best_distance = -1.0;
+
+        for (i, point) in points.iter().enumerate() {
+            let nearest_distance = centroids
+                .iter()
+                .map(|c| distance(point, c))
+                .fold(f64::INFINITY, f64::min);
+
+            if nearest_distance > best_distance {
+                best_distance = nearest_distance;
+                best_index = i;
+            }
+        }
+
+        centroids.push(points[best_index]);
+    }
+
+    // Cluster assignment for every pixel.
+    let mut labels = vec![usize::MAX; n];
+
+    for _ in 0..max_iterations {
+        let mut changed = false;
+
+        // STEP 1: Assign pixels to nearest centroid.
+        for (i, point) in points.iter().enumerate() {
+            let mut best_cluster = 0;
+            let mut min_distance = f64::INFINITY;
+
+            for (cluster, centroid) in centroids.iter().enumerate() {
+                let d = distance(point, centroid);
+
+                if d < min_distance {
+                    min_distance = d;
+                    best_cluster = cluster;
+                }
+            }
+
+            if labels[i] != best_cluster {
+                labels[i] = best_cluster;
+                changed = true;
+            }
+        }
+
+        // STEP 2: Calculate new centroid positions.
+        let mut sums = vec![[0.0f64; 3]; k];
+        let mut counts = vec![0usize; k];
+
+        for (i, point) in points.iter().enumerate() {
+            let cluster = labels[i];
+
+            sums[cluster][0] += point[0];
+            sums[cluster][1] += point[1];
+            sums[cluster][2] += point[2];
+
+            counts[cluster] += 1;
+        }
+
+        // STEP 3: Update centroids.
+        for cluster in 0..k {
+            if counts[cluster] > 0 {
+                let count = counts[cluster] as f64;
+
+                centroids[cluster] = [
+                    sums[cluster][0] / count,
+                    sums[cluster][1] / count,
+                    sums[cluster][2] / count,
+                ];
+            }
+        }
+
+        // Stop when assignments no longer change.
+        if !changed {
+            break;
+        }
+    }
+
+    // STEP 4: Generate segmented image.
+    let mut output = SharedPixelBuffer::<Rgba8Pixel>::new(width, height);
+
+    let dst = output.make_mut_slice();
+
+    for i in 0..n {
+        let centroid = centroids[labels[i]];
+
+        dst[i] = Rgba8Pixel {
+            r: centroid[0].round().clamp(0.0, 255.0) as u8,
+            g: centroid[1].round().clamp(0.0, 255.0) as u8,
+            b: centroid[2].round().clamp(0.0, 255.0) as u8,
+            a: pixels[i].a,
+        };
+    }
+
+    Some(Image::from_rgba8(output))
+}
+
 fn calculate_blp(img: slint::Image) -> Option<slint::Image> {
     use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 
@@ -295,8 +427,6 @@ fn calculate_blp(img: slint::Image) -> Option<slint::Image> {
 }
 
 fn calculate_image(area: Area, img: slint::Image) -> Option<ImageCalculatedData> {
-    let image_width = img.size().width as i32;
-    let image_height = img.size().height as i32;
     if (area.x == 0) || (area.y == 0) || (area.x + area.width == 0) || (area.y + area.height == 0) {
         return None;
     }
@@ -390,6 +520,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     ui.on_calculate_blp(move |img| -> slint::Image {
         let Some(data) = calculate_blp(img) else {
+            return slint::Image::default();
+        };
+        data
+    });
+
+    ui.on_calculate_kmeans(move |img, clusters, k| -> slint::Image {
+        let Some(data) = calculate_kmeans(img, clusters as usize, k as usize) else {
             return slint::Image::default();
         };
         data
