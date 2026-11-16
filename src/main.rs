@@ -518,25 +518,32 @@ fn main() -> Result<(), Box<dyn Error>> {
         dialog.show().unwrap();
     });
 
-    ui.on_calculate_blp(move |img| -> slint::Image {
+    let ui_handle = ui.as_weak();
+    ui.on_calculate_blp(move |img| {
+        let ui = ui_handle.unwrap();
         let Some(data) = calculate_blp(img) else {
-            return slint::Image::default();
+            return;
         };
-        data
+        ui.set_blp_image(data);
     });
 
-    ui.on_calculate_kmeans(move |img, clusters, k| -> slint::Image {
+    let ui_handle = ui.as_weak();
+    ui.on_calculate_kmeans(move |img, clusters, k| {
+        let ui = ui_handle.unwrap();
         let Some(data) = calculate_kmeans(img, clusters as usize, k as usize) else {
-            return slint::Image::default();
+            return;
         };
-        data
+        ui.set_kmeans_image(data);
     });
 
-    ui.on_calculate_histogram(move |img| -> slint::Image {
+    let ui_handle = ui.as_weak();
+    ui.on_calculate_histogram(move |img| {
+        let ui = ui_handle.unwrap();
         let Some(data) = calculate_histogram(img) else {
-            return slint::Image::default();
+            return;
         };
-        data
+
+        ui.set_hist_image(data);
     });
 
     ui.on_save_histogram(move |img| match save_image(img) {

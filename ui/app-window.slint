@@ -109,7 +109,7 @@ struct DraggingContext {
     cur_y: length,
 }
 
-export component PixelStatPage inherits VerticalBox {
+component PixelStatPage inherits VerticalBox {
     in-out property original-image <=> original.source;
     callback file-open();
     callback calculate-data(Area);
@@ -174,13 +174,20 @@ export component PixelStatPage inherits VerticalBox {
     }
 }
 
-export component BlpPage inherits VerticalBox {
+component BlpPage inherits VerticalBox {
     in-out property original-image <=> original.source;
     in-out property blp-image <=> blp-img.source;
     in-out property hist-image <=> hist-img.source;
-    pure callback calculate-histogram(image) -> image;
-    pure callback calculate-blp(image) -> image;
+    callback calculate-histogram(image);
+    callback calculate-blp(image);
     callback save-histogram(image);
+
+    changed blp-image => {
+        calculate-histogram(blp-image);
+    }
+    changed original-image => {
+        calculate-blp(original-image);
+    }
 
     VerticalBox {
         HorizontalBox {
@@ -204,7 +211,6 @@ export component BlpPage inherits VerticalBox {
                 }
 
                 blp-img := Image {
-                    source: calculate-blp(original-image);
                     image-fit: contain;
                 }
             }
@@ -219,7 +225,6 @@ export component BlpPage inherits VerticalBox {
 
             ContextMenuArea {
                 hist-img := Image {
-                    source: calculate-histogram(blp-image);
                     image-fit: contain;
                 }
 
@@ -236,18 +241,17 @@ export component BlpPage inherits VerticalBox {
     }
 }
 
-export component KMeansPage inherits VerticalBox {
+component KMeansPage inherits VerticalBox {
     in-out property original-image <=> original.source;
     in-out property kmeans-image <=> kmeans-img.source;
 
     in-out property <int> kmean-max-iters: 5;
     in-out property <int> kmean-cluster-count: 2;
 
-    pure callback calculate-kmeans(image, int, int) -> image;
+    callback calculate-kmeans(image, int, int);
 
     spacing: 20px;
 
-    // Top: parameter selection
     VerticalBox {
         alignment: center;
         vertical-stretch: 0;
@@ -298,7 +302,7 @@ export component KMeansPage inherits VerticalBox {
             Button {
                 text: "Calculate";
                 clicked => {
-                    kmeans-img.source = calculate-kmeans(
+                    calculate-kmeans(
                         original-image,
                         kmean-cluster-count,
                         kmean-max-iters);
@@ -307,7 +311,6 @@ export component KMeansPage inherits VerticalBox {
         }
     }
 
-    // Bottom: images
     HorizontalBox {
         spacing: 20px;
         vertical-stretch: 1;
@@ -354,10 +357,13 @@ export enum WindowState {
 export component AppWindow inherits Window {
     in-out property <WindowState> state: WindowState.KMeans;
     in-out property <image> original-image;
+    in-out property <image> hist-image;
+    in-out property <image> blp-image;
+    in-out property <image> kmeans-image;
     callback calculate-data(Area);
-    pure callback calculate-blp(image) -> image;
-    pure callback calculate-kmeans(image, int, int) -> image;
-    pure callback calculate-histogram(image) -> image;
+    callback calculate-blp(image);
+    callback calculate-kmeans(image, int, int);
+    callback calculate-histogram(image);
     callback save-histogram(image);
     callback file-open();
     title: "Rust signal processing examples";
@@ -406,10 +412,13 @@ export component AppWindow inherits Window {
         }
         if (state == WindowState.KMeans): KMeansPage {
             original-image: original-image;
+            kmeans-image: root.kmeans-image;
             calculate-kmeans(a, b, c) => calculate-kmeans(a,b,c);
         }
         if (state == WindowState.BinaryLocalPattern): BlpPage {
-            original-image: original-image;
+            original-image: root.original-image;
+            hist-image: root.hist-image;
+            blp-image: root.blp-image;
             calculate-blp(img) => calculate-blp(img);
             calculate-histogram(img) => calculate-histogram(img);
             save-histogram(img) => save-histogram(img);
